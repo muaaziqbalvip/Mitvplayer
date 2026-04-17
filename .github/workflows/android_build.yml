@@ -1,0 +1,167 @@
+name: 🚀 MiTV Player — Build & Sign APK
+
+on:
+  push:
+    branches: [ "main", "master", "release/**" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type (debug / release)'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - debug
+          - release
+
+env:
+  JAVA_VERSION: '17'
+  GRADLE_OPTS: '-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true'
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  build:
+    name: 🔨 Build ${{ github.event.inputs.build_type || 'release' }} APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      # ── 1. Checkout ─────────────────────────────────────────────────────────
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── 2. Java ─────────────────────────────────────────────────────────────
+      - name: ☕ Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: gradle
+
+      # ── 3. Gradle Wrapper Validation ────────────────────────────────────────
+      - name: ✅ Validate Gradle wrapper
+        uses: gradle/wrapper-validation-action@v3
+
+      # ── 4. Grant execute permission ─────────────────────────────────────────
+      - name: 🔧 Grant execute permission for Gradle
+        run: chmod +x gradlew
+
+      # ── 5. Cache Gradle ─────────────────────────────────────────────────────
+      - name: 📦 Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.android/build-cache
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle.kts', '**/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # ── 6. Decode Keystore ──────────────────────────────────────────────────
+      - name: 🔑 Decode keystore
+        if: github.event.inputs.build_type != 'debug'
+        run: |
+          mkdir -p app/keystore
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/keystore/release.keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+
+      # ── 7. Build Debug APK ───────────────────────────────────────────────────
+      - name: 🐛 Build Debug APK
+        if: github.event.inputs.build_type == 'debug' || github.event_name == 'pull_request'
+        run: ./gradlew assembleDebug --stacktrace
+
+      # ── 8. Build Release APK (Signed) ───────────────────────────────────────
+      - name: 🚀 Build Release APK (Signed)
+        if: github.event.inputs.build_type != 'debug' && github.event_name != 'pull_request'
+        run: ./gradlew assembleRelease --stacktrace
+        env:
+          KEYSTORE_PATH:     app/keystore/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS:         ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD:      ${{ secrets.KEY_PASSWORD }}
+
+      # ── 9. Run Unit Tests ────────────────────────────────────────────────────
+      - name: 🧪 Run unit tests
+        run: ./gradlew test --stacktrace
+
+      # ── 10. Upload Debug APK ────────────────────────────────────────────────
+      - name: 📤 Upload Debug APK
+        if: github.event.inputs.build_type == 'debug' || github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiTV-Player-debug-${{ github.sha }}
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
+      # ── 11. Upload Release APK ──────────────────────────────────────────────
+      - name: 📤 Upload Release APK
+        if: github.event.inputs.build_type != 'debug' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiTV-Player-release-${{ github.sha }}
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+      # ── 12. Upload Build Reports ────────────────────────────────────────────
+      - name: 📊 Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ github.sha }}
+          path: app/build/reports/
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────────────────────
+  release:
+    name: 🏷️ Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/heads/release/') && github.event_name == 'push'
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 📥 Download signed APK
+        uses: actions/download-artifact@v4
+        with:
+          pattern: MiTV-Player-release-*
+          merge-multiple: true
+          path: release-apks/
+
+      - name: 🏷️ Get version from tag
+        id: version
+        run: |
+          echo "VERSION=$(grep 'versionName' app/build.gradle.kts | head -1 | grep -oP '"\K[^"]+')" >> $GITHUB_OUTPUT
+
+      - name: 🚀 Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.VERSION }}-${{ github.run_number }}
+          name: MiTV Player v${{ steps.version.outputs.VERSION }}
+          body: |
+            ## 📺 MiTV Player — Release v${{ steps.version.outputs.VERSION }}
+
+            ### ✨ What's New
+            - Premium IPTV experience with Dark Gold theme
+            - M3U playlist support with instant channel parsing
+            - Gesture controls (brightness/volume)
+            - HLS, DASH, MP4, MKV stream support
+            - Beautiful fallback screen with retry
+
+            ### 📥 Installation
+            Download `MiTV-Player-release.apk` below and install on your Android device.
+            > Enable **"Install from unknown sources"** in Android Settings if prompted.
+
+            **Built from:** `${{ github.sha }}`
+          files: release-apks/*.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

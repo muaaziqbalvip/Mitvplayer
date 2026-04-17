@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MiTV Player</string>
+    <string name="dashboard_title">MiTV Player</string>
+    <string name="settings_title">Settings</string>
+    <string name="player_title">Now Playing</string>
+    <string name="add_playlist">Add Playlist</string>
+    <string name="playlist_name_hint">Playlist Name</string>
+    <string name="playlist_url_hint">M3U URL (http://…)</string>
+    <string name="retry">Retry</string>
+    <string name="contact_support">Contact Support</string>
+    <string name="stream_unavailable">Stream Unavailable</string>
+    <string name="search_channels">Search channels…</string>
+    <string name="all_categories">All</string>
+    <string name="clear_cache">Clear Cache</string>
+    <string name="theme_label">Theme</string>
+    <string name="no_playlists">No playlists added yet</string>
+    <string name="add_first_playlist">Add an M3U playlist to start watching</string>
+    <string name="live_badge">LIVE</string>
+    <string name="loading">Loading…</string>
+    <string name="buffering">Buffering</string>
+</resources>
